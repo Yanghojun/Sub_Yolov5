@@ -17,6 +17,7 @@ from pathlib import Path
 from threading import Thread
 from urllib.parse import urlparse
 from zipfile import ZipFile
+import pyrealsense2 as rs
 
 import numpy as np
 import torch
@@ -321,16 +322,32 @@ class LoadStreams:
                 import pafy
                 s = pafy.new(s).getbest(preftype="mp4").url  # YouTube URL
             s = eval(s) if s.isnumeric() else s  # i.e. s = '0' local webcam
-            cap = cv2.VideoCapture(s)
-            assert cap.isOpened(), f'{st}Failed to open {s}'
-            w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            fps = cap.get(cv2.CAP_PROP_FPS)  # warning: may return 0 or nan
-            self.frames[i] = max(int(cap.get(cv2.CAP_PROP_FRAME_COUNT)), 0) or float('inf')  # infinite stream fallback
-            self.fps[i] = max((fps if math.isfinite(fps) else 0) % 100, 0) or 30  # 30 FPS fallback
+            # cap = cv2.VideoCapture(s)
+            # assert cap.isOpened(), f'{st}Failed to open {s}'
+            # w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            # h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            # fps = cap.get(cv2.CAP_PROP_FPS)  # warning: may return 0 or nan
+            # self.frames[i] = max(int(cap.get(cv2.CAP_PROP_FRAME_COUNT)), 0) or float('inf')  # infinite stream fallback
+            # self.fps[i] = max((fps if math.isfinite(fps) else 0) % 100, 0) or 30  # 30 FPS fallback
 
-            _, self.imgs[i] = cap.read()  # guarantee first frame
-            self.threads[i] = Thread(target=self.update, args=([i, cap, s]), daemon=True)
+            # _, self.imgs[i] = cap.read()  # guarantee first frame
+            config = rs.config()
+            config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
+            config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
+            pipe = rs.pipeline()
+
+            w = 640
+            h = 480
+
+            self.fps[i] = 30.0  # 30 FPS fallback
+            self.frames[i] = float('inf')  # infinite stream fallback
+
+            pipe.start(config)
+            tmp = pipe.wait_for_frames()
+            self.imgs[i] = np.array(tmp.get_color_frame().get_data())
+            # self.depth = tmp.get_depth_frame()
+
+            self.threads[i] = Thread(target=self.update, args=([i, pipe]), daemon=True)
             LOGGER.info(f"{st} Success ({self.frames[i]} frames {w}x{h} at {self.fps[i]:.2f} FPS)")
             self.threads[i].start()
         LOGGER.info('')  # newline
@@ -341,21 +358,20 @@ class LoadStreams:
         if not self.rect:
             LOGGER.warning('WARNING: Stream shapes differ. For optimal performance supply similarly-shaped streams.')
 
-    def update(self, i, cap, stream):
+    def update(self, i, pipe):
         # Read stream `i` frames in daemon thread
         n, f, read = 0, self.frames[i], 1  # frame number, frame array, inference every 'read' frame
-        while cap.isOpened() and n < f:
+        while True and n < f:
             n += 1
             # _, self.imgs[index] = cap.read()
-            cap.grab()
+            frames = pipe.wait_for_frames()
+            depth = frames.get_depth_frame()
+            if not depth: continue
             if n % read == 0:
-                success, im = cap.retrieve()
-                if success:
-                    self.imgs[i] = im
-                else:
-                    LOGGER.warning('WARNING: Video stream unresponsive, please check your IP camera connection.')
-                    self.imgs[i] = np.zeros_like(self.imgs[i])
-                    cap.open(stream)  # re-open stream if signal was lost
+                depth = frames.get_depth_frame()
+                frame = np.array(frames.get_color_frame().get_data())  
+                self.imgs[i] = frame
+                self.depth = depth
             time.sleep(1 / self.fps[i])  # wait time
 
     def __iter__(self):
@@ -379,7 +395,7 @@ class LoadStreams:
         img = img[..., ::-1].transpose((0, 3, 1, 2))  # BGR to RGB, BHWC to BCHW
         img = np.ascontiguousarray(img)
 
-        return self.sources, img, img0, None, ''
+        return self.sources, img, img0, None, '', self.depth
 
     def __len__(self):
         return len(self.sources)  # 1E12 frames = 32 streams at 30 FPS for 30 years

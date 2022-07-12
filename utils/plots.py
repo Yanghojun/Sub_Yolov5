@@ -80,7 +80,7 @@ class Annotator:
             self.im = im
         self.lw = line_width or max(round(sum(im.shape) / 2 * 0.003), 2)  # line width
 
-    def box_label(self, box, label='', color=(128, 128, 128), txt_color=(255, 255, 255)):
+    def box_label(self, box, label='', depth_frame=None, color=(128, 128, 128), txt_color=(255, 255, 255)):
         # Add one xyxy box to image with label
         if self.pil or not is_ascii(label):
             self.draw.rectangle(box, width=self.lw, outline=color)  # box
@@ -96,6 +96,8 @@ class Annotator:
                 self.draw.text((box[0], box[1] - h if outside else box[1]), label, fill=txt_color, font=self.font)
         else:  # cv2
             p1, p2 = (int(box[0]), int(box[1])), (int(box[2]), int(box[3]))
+            cen_x, cen_y = self.get_center_point(box)
+            distance = self.get_distance(cen_x, cen_y, depth_frame, padding=2)
             cv2.rectangle(self.im, p1, p2, color, thickness=self.lw, lineType=cv2.LINE_AA)
             if label:
                 tf = max(self.lw - 1, 1)  # font thickness
@@ -110,6 +112,29 @@ class Annotator:
                             txt_color,
                             thickness=tf,
                             lineType=cv2.LINE_AA)
+                cv2.putText(self.im,
+                            str(distance)[:5], (cen_x, cen_y),
+                            0,
+                            self.lw / 3,
+                            txt_color,
+                            thickness=tf,
+                            lineType=cv2.LINE_AA)
+
+    def get_center_point(self, box):
+        x1, y1, x2, y2 = int(box[0]), int(box[1]), int(box[2]), int(box[3])
+        center_x, center_y = x2 - (x2 - x1)//2, y2 - (y2 - y1) // 2
+        return center_x, center_y
+
+    def get_distance(self, x, y, depth_frame, padding=2):
+        distance = 0
+
+        area = padding ** 2
+        for row in range(x-padding, x+padding+1):
+            for col in (y-padding, y+padding+1):
+                dist = depth_frame.get_distance(row, col)
+                distance += dist
+        distance /= area
+        return distance
 
     def rectangle(self, xy, fill=None, outline=None, width=1):
         # Add rectangle to image (PIL-only)
