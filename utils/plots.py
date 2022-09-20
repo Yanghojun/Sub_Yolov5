@@ -78,6 +78,8 @@ class Annotator:
                                        size=font_size or max(round(sum(self.im.size) / 2 * 0.035), 12))
         else:  # use cv2
             self.im = im
+            self.height = self.im.shape[1] # numpy shape: (width, height, channel)
+            self.width = self.im.shape[0]
         self.lw = line_width or max(round(sum(im.shape) / 2 * 0.003), 2)  # line width
 
     def box_label(self, box, label='', depth_frame=None, color=(128, 128, 128), txt_color=(255, 255, 255)):
@@ -98,6 +100,7 @@ class Annotator:
             p1, p2 = (int(box[0]), int(box[1])), (int(box[2]), int(box[3]))
             cen_x, cen_y = self.get_center_point(box)
             distance = self.get_distance(cen_x, cen_y, depth_frame, padding=2)
+            direction = self.get_direction(cen_y, cen_x)
             cv2.rectangle(self.im, p1, p2, color, thickness=self.lw, lineType=cv2.LINE_AA)
             if label:
                 tf = max(self.lw - 1, 1)  # font thickness
@@ -119,6 +122,83 @@ class Annotator:
                             txt_color,
                             thickness=tf,
                             lineType=cv2.LINE_AA)
+        return distance, direction
+
+    def get_direction(self, y, x):
+        # not use np.pi for speed up
+        # direction = None
+        # criteria_x, criteria_y = self.height-1, (self.width // 2)-1
+        # print(f"criteria_x: {criteria_x}, criteria_y: {criteria_y}")
+        # if criteria_y - cen_y == 0:
+        #     direction = 12
+        #     return direction
+        # if criteria_x - cen_x == 0:
+        #     print("x be 0!!")
+        #     direction = 9999
+        #     return direction
+
+        # degree = np.arctan([abs((criteria_x - cen_x) / (criteria_y - cen_y))])
+        # degree = 180 * (degree / 3.14)
+        # print(f"degree: {degree}")
+        # print(f"cen_y: {cen_y}")
+        # if cen_y < criteria_y:  # 9, 10, 11
+        #     print("9, 10, 11")
+        #     for th in [1, 2, 3]:
+        #         if ((180 / 7) * (th-1)) < degree <= ((180 / 7) * th):
+        #             direction = th + 8
+        #             break
+        # else:
+        #     for th in [5, 6, 7]:    # 1, 2, 3
+        #         if ((180 / 7) * (th-1)) < degree <= ((180 / 7) * th):
+        #             direction = th - 4
+        #             break
+        # if direction == None:
+        #     direction = 12
+
+        direction =""
+        # x좌표 값이 300보다 작을 때
+        # if x<320 :
+        #     if y<-0.46*(x-320):
+        #         direction="9"
+        #     elif y<-1.19*(x-320):
+        #         direction="10"
+        #     elif y<-3.73*(x-320):
+        #         direction="11" 
+        #     else :
+        #         direction="12"
+        # # x좌표 값이 300보다 클 때
+        # if x>=320 :
+        #     if y>3.73*(x-320):
+        #         direction="12"
+        #     elif y>1.19*(x-320):
+        #         direction="1"
+        #     elif y>0.46*(x-320):
+        #         direction="2" 
+        #     else :
+        #         direction="3"
+        if x<320:
+            if y >= 0.62 * x + 279:
+                direction = "9"
+            elif y >= 1.24 * x +83.19:
+                direction = "10"
+            elif y>= 1.86 * x -115.20:
+                direction = "11"
+            else:
+                direction = "12"
+        
+        else:
+            if y <= -1.19 * x + 860.8:
+                direction = "12"
+            elif y <= -0.31 * x + 582.4:
+                direction = "1"
+            elif y <= 0.26 * x + 396.8:
+                direction = "2"
+            else:
+                direction = "3"
+
+        
+        return direction
+
 
     def get_center_point(self, box):
         x1, y1, x2, y2 = int(box[0]), int(box[1]), int(box[2]), int(box[3])
